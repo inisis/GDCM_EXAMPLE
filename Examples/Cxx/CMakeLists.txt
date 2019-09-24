@@ -32,6 +32,9 @@ if(OpenCV_FOUND)
   add_executable(ConvertToCVMat ConvertToCVMat.cxx)
   target_link_libraries(ConvertToCVMat gdcmMSFF ${OpenCV_LIBS} glog curl)
 
+  add_executable(ConvertToCVMat_PERF ConvertToCVMat_PERF.cxx)
+  target_link_libraries(ConvertToCVMat_PERF gdcmMSFF ${OpenCV_LIBS} glog curl)
+
 endif()
 
 if(BUILD_SHARED_LIBS)

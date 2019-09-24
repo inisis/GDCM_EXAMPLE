@@ -147,7 +147,7 @@ bool convert_image_to_cv_grey(gdcm::Image const & gimage, cv::Mat &imageCv){
 
     if(gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::RGB){
         if(gimage.GetPixelFormat() != gdcm::PixelFormat::UINT8){
-            return false;
+            return 1;
         }
         auto *ubuffer = (unsigned char*)buffer;
         imageCv = cv::Mat(dimY, dimX, CV_8UC3, ubuffer);
@@ -195,14 +195,14 @@ bool convert_image_to_cv_grey(gdcm::Image const & gimage, cv::Mat &imageCv){
 
         } else{
             std::cerr << "Pixel Format is: " << gimage.GetPixelFormat() << std::endl;
-            return false;
+            return 1;
         }
     } else{
         std::cerr << "Unhandled PhotometricInterpretation: " << gimage.GetPhotometricInterpretation() << std::endl;
-        return false;
+        return 1;
     }
 
-    return true;
+    return 0;
 }
 
 template<typename T>
@@ -231,14 +231,6 @@ int main(int argc, char *argv[])
     const char *filename = argv[1];
     const char *outfilename = argv[2];
 
-    gdcm::ImageReader ir_file;
-    ir_file.SetFileName(filename);
-
-    if(!ir_file.Read()){
-        LOG(ERROR) << "Read Image Failed...";
-        return 1;
-    }
-
     std::string uri ="https://sc.jfhealthcare.cn/v1/picl/aets/piclarc/wado?requestType=WADO&contentType=application/dicom&studyUID=1.2.840.473.8013.20190624.1134240.765.29631.53&seriesUID=1.2.392.200036.9125.3.1045202532727.64910469116.4200806&objectUID=1.2.392.200036.9125.4.0.470808524.687605096.902437659";
     std::vector<char> data;
 
@@ -262,28 +254,18 @@ int main(int argc, char *argv[])
 
     LOG(INFO) << "Read from buffer length: " << image_buffer.GetBufferLength();
 
-    const gdcm::Image &image_file = ir_file.GetImage();
-
-    LOG(INFO) << "Read from file length: " << image_file.GetBufferLength();
-
-    cv::Mat grey_image_file;
-    if(!convert_image_to_cv_grey(image_file, grey_image_file)){
-        LOG(ERROR) << "Convert Image Failed...";
-        return 1;
-    }
-    LOG(INFO) << "Convert Image Done...";
-
     cv::Mat grey_image_buffer;
-    if(!convert_image_to_cv_grey(image_buffer, grey_image_buffer)){
+    if(convert_image_to_cv_grey(image_buffer, grey_image_buffer) == 1){
         LOG(ERROR) << "Convert Image Failed...";
         return 1;
     }
     LOG(INFO) << "Convert Image Done...";
 
-    auto *referencePtr = grey_image_file.ptr<unsigned char>(0);
-    auto *testPtr = grey_image_buffer.ptr<unsigned char>(0);
+    const cv::Size newSize(1024, 1024);
+    cv::Mat output;
+    cv::resize(grey_image_buffer, output, newSize);
 
-    check_exact_result(referencePtr, testPtr, grey_image_buffer.rows * grey_image_buffer.cols * grey_image_buffer.channels());
+    LOG(INFO) << "Resize Image Done...";
 
     cv::imwrite(outfilename, grey_image_buffer);
 
