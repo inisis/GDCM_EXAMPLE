@@ -1,31 +1,3 @@
-/*=========================================================================
-
-  Program: GDCM (Grassroots DICOM). A DICOM library
-
-  Copyright (c) 2006-2011 Mathieu Malaterre
-  All rights reserved.
-  See Copyright.txt or http://gdcm.sourceforge.net/Copyright.html for details.
-
-     This software is distributed WITHOUT ANY WARRANTY; without even
-     the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
-     PURPOSE.  See the above copyright notice for more information.
-
-=========================================================================*/
-/*
- * This example shows how to setup the pipeline from a gdcm::ImageReader into a
- * Qt QImage data structure.
- * It only handles 2D image.
- *
- * Ref:
- * http://doc.trolltech.com/4.5/qimage.html
- *
- * Usage:
- *  ConvertToQImage gdcmData/012345.002.050.dcm output.png
-
- * Thanks:
- *   Sylvain ADAM (sylvain51 hotmail com) for contributing this example
- */
-
 #include "iostream"
 #include "algorithm"
 #include "gdcmImageReader.h"
@@ -96,110 +68,136 @@ static int read_image_from_uri(const std::string &uri, std::vector<char> &buffer
     return 0;
 }
 
-
-bool ConvertToFormat_GREY(gdcm::Image const & gimage, char *buffer, cv::Mat &imageCv)
+bool percentile(cv::Mat& imageCv, std::vector<float>& query, std::vector<float>& answer)
 {
+//    type
+//              C1	C2	C3	C4
+//    CV_8U	    0	8	16	24
+//    CV_8S	    1	9	17	25
+//    CV_16U	2	10	18	26
+//    CV_16S	3	11	19	27
+//    CV_32S	4	12	20	28
+//    CV_32F	5	13	21	29
+//    CV_64F	6	14	22	30
+
+//    depth
+//    #define CV_8U   0
+//    #define CV_8S   1
+//    #define CV_16U  2
+//    #define CV_16S  3
+//    #define CV_32S  4
+//    #define CV_32F  5
+//    #define CV_64F  6
+
+    auto depth = imageCv.depth();
+    int upper = 0;
+    int lower = 0;
+
+    if(depth == 0){
+        upper =  256;
+        lower = 0;
+    } else if(depth == 1){
+        upper =  128;
+        lower = -128;
+    } else if(depth == 2){
+        upper = 65536;
+        lower = 0;
+    } else if(depth == 3){
+        upper = 32768;
+        lower = -32768;
+    } else{
+        LOG(ERROR) << "Unsupported image depth" << depth;
+        return -1;
+    }
+
+    float range[]={(float)lower, (float)upper /*exclusive*/};
+    const float* ranges[] = {range};
+
+    int channel[] = {0};
+    const int* channels = {channel};
+
+    int histsize[] = {upper-lower};
+    const int* histSize = {histsize};
+
+    cv::Mat hist;
+    cv::calcHist(&imageCv, 1, channels, cv::Mat(), hist, 1, histSize, ranges);
+
+    for(int i = 0; i < query.size(); ++i){
+        int lowerbound = 0;
+        for (float count=0.0; lowerbound < upper; lowerbound++) {
+            // number of pixel at imin and below must be > number
+            if ((count+=hist.at<float>(lowerbound)) >= imageCv.total() * query[i]){
+                answer.push_back(lowerbound);
+                break;
+            }
+        }
+    }
+}
+
+bool convert_image_to_cv_grey(gdcm::Image const & gimage, cv::Mat &imageCv){
     const unsigned int* dimension = gimage.GetDimensions();
 
     unsigned int dimX = dimension[0];
     unsigned int dimY = dimension[1];
 
+    std::vector<char> vbuffer;
+    vbuffer.resize( gimage.GetBufferLength() );
+    char *buffer = &vbuffer[0];
     gimage.GetBuffer(buffer);
 
-    // Let's start with the easy case:
-    if( gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::RGB )
-    {
-        if( gimage.GetPixelFormat() != gdcm::PixelFormat::UINT8 )
-        {
+    if(gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::RGB){
+        if(gimage.GetPixelFormat() != gdcm::PixelFormat::UINT8){
             return false;
         }
-        unsigned char *ubuffer = (unsigned char*)buffer;
+        auto *ubuffer = (unsigned char*)buffer;
         imageCv = cv::Mat(dimY, dimX, CV_8UC3, ubuffer);
-    }
-    else if( gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::MONOCHROME2 || gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::MONOCHROME1)
-    {
-        if( gimage.GetPixelFormat() == gdcm::PixelFormat::UINT8 )
-        {
+    } else if( gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::MONOCHROME2 || gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::MONOCHROME1){
+        if(gimage.GetPixelFormat() == gdcm::PixelFormat::UINT8){
             // We need to copy each individual 8bits into R / G and B:
-            unsigned char *ubuffer = new unsigned char[dimX*dimY*3];
-            unsigned char *pubuffer = ubuffer;
-            for(unsigned int i = 0; i < dimX*dimY; i++)
-            {
-                *pubuffer++ = *buffer;
-                *pubuffer++ = *buffer;
-                *pubuffer++ = *buffer++;
+            auto *ubuffer = new unsigned char[dimX*dimY*3];
+            for(unsigned int i = 0; i < dimX*dimY; i++){
+                *ubuffer++ = *buffer;
+                *ubuffer++ = *buffer;
+                *ubuffer++ = *buffer++;
             }
       
             imageCv = cv::Mat(dimY, dimX, CV_8UC3, ubuffer);
-        }
-        else if( gimage.GetPixelFormat() == gdcm::PixelFormat::UINT16 )
-        {
-            // We need to copy each individual 16bits into R / G and B (truncate value)
-            unsigned short *ubuffer16 = (unsigned short*)buffer;
-            unsigned char *ubuffer = new unsigned char[dimX*dimY];
-            unsigned char *pubuffer = ubuffer;
+        } else if(gimage.GetPixelFormat() == gdcm::PixelFormat::UINT16){
+            auto *ubuffer16 = (unsigned short*)buffer;
 
             cv::Mat tmp = cv::Mat(dimY, dimX, CV_16UC1, ubuffer16);
             cv::Mat u16_(dimY, dimX, CV_16UC1);
-            if(gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::MONOCHROME1)
-            {
+
+            if(gimage.GetPhotometricInterpretation() == gdcm::PhotometricInterpretation::MONOCHROME1){
                 cv::bitwise_not(tmp, u16_);
             }
-            else
-            {
+            else{
                 u16_ = tmp;
             }
 
-            cv::Mat hist;
-            
-            float range[]={0.0f, 65536.0f};
-            const float* ranges[] = {range};
+            std::vector<float> query{0.01, 0.99};
+            std::vector<float> answer;
+            percentile(u16_, query, answer);
 
-            int channel[] = {0};
-            const int* channels = {channel};
+            cv::Mat before_eh(dimY, dimX, CV_8UC1);
 
-            int histsize[] = {65536};
-            const int* histSize = {histsize};
+            auto *u16_ptr = u16_.ptr<unsigned short>(0);
 
-            cv::calcHist(&u16_, 1, channels, cv::Mat(), hist, 1, histSize, ranges);
+            auto *before_eh_ptr = before_eh.ptr<unsigned char>(0);
 
-            float number= u16_.total()*0.01;
-
-            int lowerbound = 0;
-            for (float count=0.0; lowerbound < 65535; lowerbound++) {
-                // number of pixel at imin and below must be > number
-                if ((count+=hist.at<float>(lowerbound)) >= number)
-                    break;
+            for(unsigned int i = 0; i < dimX*dimY; i++){
+                unsigned short x = clip(u16_ptr[i], answer[0], answer[1]);
+                *before_eh_ptr++ = (unsigned char)((x - answer[0]) * 255.0 / (answer[1]  - answer[0]));
             }
 
-            int upperbound = 65535;
-            for (float count=0.0; upperbound >= 0; upperbound--) {
-                // number of pixel at imax and below must be > number
-                if ((count += hist.at<float>(upperbound)) >= number)
-                    break;
-            }
-
-            std::cout<< lowerbound << " " << upperbound <<std::endl;
-
-            unsigned short *outputPtr = u16_.ptr<unsigned short>(0);
-            for(unsigned int i = 0; i < dimX*dimY; i++)
-            {
-                unsigned short x = clip(outputPtr[i], lowerbound, upperbound);
-                *pubuffer++ = (unsigned char)((x - lowerbound) * 255.0 / (upperbound  - lowerbound));
-            }
-            cv::Mat* before_eh = new cv::Mat(dimY, dimX, CV_8UC1, ubuffer);
             imageCv = cv::Mat(dimY, dimX, CV_8UC1);
-            cv::equalizeHist(*before_eh, imageCv);
+            cv::equalizeHist(before_eh, imageCv);
 
-        }
-        else
-        {
+        } else{
             std::cerr << "Pixel Format is: " << gimage.GetPixelFormat() << std::endl;
             return false;
         }
-    }
-    else
-    {
+    } else{
         std::cerr << "Unhandled PhotometricInterpretation: " << gimage.GetPhotometricInterpretation() << std::endl;
         return false;
     }
@@ -207,63 +205,87 @@ bool ConvertToFormat_GREY(gdcm::Image const & gimage, char *buffer, cv::Mat &ima
     return true;
 }
 
+template<typename T>
+void check_exact_result(const T* const ref, const T* const gpu, size_t numElem) {
+    bool is_same = true;
+    for (size_t i = 0; i < numElem; ++i) {
+        if (ref[i] != gpu[i]) {
+            LOG(INFO) << "Difference at pos " << i;
+            LOG(INFO) << "Reference: " << std::setprecision(17) << +ref[i] << "\n GPU      : " << +gpu[i];
+            is_same = false;
+        }
+    }
+    if(is_same)
+        LOG(INFO) << "Generated images are the same.";
+    else
+        LOG(INFO) << "Generated images are not the same.";
+}
+
 int main(int argc, char *argv[])
 {
-    if( argc < 2 )
-    {
+    if( argc < 2 ){
+        LOG(ERROR) << "Missing input parameter...";
         return 1;
     }
+
     const char *filename = argv[1];
     const char *outfilename = argv[2];
 
     gdcm::ImageReader ir_file;
-    gdcm::ImageReader ir;
-    ir_file.SetFileName( filename );
-    if(!ir_file.Read())
-    {
-        //Read failed
+    ir_file.SetFileName(filename);
+
+    if(!ir_file.Read()){
+        LOG(ERROR) << "Read Image Failed...";
         return 1;
     }
 
     std::string uri ="https://sc.jfhealthcare.cn/v1/picl/aets/piclarc/wado?requestType=WADO&contentType=application/dicom&studyUID=1.2.840.473.8013.20190624.1134240.765.29631.53&seriesUID=1.2.392.200036.9125.3.1045202532727.64910469116.4200806&objectUID=1.2.392.200036.9125.4.0.470808524.687605096.902437659";
     std::vector<char> data;
-    int result = read_image_from_uri(uri, data, 5000);
-    LOG(INFO) << data.size();
 
-    std::string s((char*)data.data(),data.size());
+    LOG(INFO) << "Before read...";
+
+    int result = read_image_from_uri(uri, data, 3000);
+
+    LOG(INFO) << "Download from network: " << data.size();
+
+    std::string s((char*)data.data(), data.size());
     std::istringstream iss(s);
-    ir.SetStream(iss);
-    if(!ir.Read())
-    {
-        //Read failed
+    gdcm::ImageReader ir_buffer;
+    ir_buffer.SetStream(iss);
+
+    if(!ir_buffer.Read()){
+        LOG(ERROR) << "Read Image Failed...";
         return 1;
     }
 
-    // const gdcm::Image &gimage = (gdcm::Image)data.data();
     LOG(INFO) << "Getting image from ImageReader...";
 
-    // gdcm::Image* buffer_image = reinterpret_cast<gdcm::Image*>(data.data());
+    const gdcm::Image &image_buffer = ir_buffer.GetImage();
 
-    //LOG(INFO) << buffer_image->GetBufferLength();
+    LOG(INFO) << "Read from buffer length: " << image_buffer.GetBufferLength();
 
-    const gdcm::Image &gimage = ir.GetImage();
+    const gdcm::Image &image_file = ir_file.GetImage();
 
-    LOG(INFO) << gimage.GetBufferLength();
+    LOG(INFO) << "Read from file length: " << image_file.GetBufferLength();
 
-    const gdcm::Image &gimage_file = ir_file.GetImage();
-
-    LOG(INFO) << gimage_file.GetBufferLength();
-
-    std::vector<char> vbuffer;
-    vbuffer.resize( gimage.GetBufferLength() );
-    char *buffer = &vbuffer[0];
-
-    cv::Mat imageCv;
-    if( !ConvertToFormat_GREY( gimage, buffer, imageCv) )
-    {
+    cv::Mat grey_image_file;
+    if(!convert_image_to_cv_grey(image_file, grey_image_file)){
+        LOG(ERROR) << "Convert Image Failed...";
         return 1;
     }
 
-    cv::imwrite(outfilename, imageCv);
+    cv::Mat grey_image_buffer;
+    if(!convert_image_to_cv_grey(image_buffer, grey_image_buffer)){
+        LOG(ERROR) << "Convert Image Failed...";
+        return 1;
+    }
+
+    auto *referencePtr = grey_image_file.ptr<unsigned char>(0);
+    auto *testPtr = grey_image_buffer.ptr<unsigned char>(0);
+
+    check_exact_result(referencePtr, testPtr, grey_image_buffer.rows * grey_image_buffer.cols * grey_image_buffer.channels());
+
+    cv::imwrite(outfilename, grey_image_buffer);
+
     return 0;
 }
