@@ -1,8 +1,4 @@
 # Build the GDCM examples
-
-SET(CMAKE_CXX_FLAGS_DEBUG " $ENV{CXXFLAGS} -std=c++11 -DDEBUG -DDLIB_NO_GUI_SUPPORT -g -w")
-SET(CMAKE_CXX_FLAGS_RELEASE " $ENV{CXXFLAGS} -std=c++11 -DNDEBUG -DDLIB_NO_GUI_SUPPORT -O3 -w")
-
 # Add the include paths
 include_directories(
   "${GDCM_BINARY_DIR}/Source/Common"
@@ -34,7 +30,7 @@ endif()
 
 if(OpenCV_FOUND)
   add_executable(ConvertToCVMat ConvertToCVMat.cxx)
-  target_link_libraries(ConvertToCVMat gdcmMSFF ${OpenCV_LIBS})
+  target_link_libraries(ConvertToCVMat gdcmMSFF ${OpenCV_LIBS} glog curl)
 
 endif()
 
