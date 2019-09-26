@@ -619,6 +619,8 @@ if(GDCM_STANDALONE)
   # After Wrapping please
   if(BUILD_EXAMPLES)
     subdirs(Examples)
+    include_directories(${PROJECT_SOURCE_DIR}/GPUJPEG)
+    add_subdirectory(GPUJPEG)
   endif()
 endif()
 

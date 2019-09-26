@@ -14,6 +14,8 @@
 #include "NvCaffeParser.h"
 #include "NvInferPlugin.h"
 
+#include "Lion.h"
+
 using namespace nvinfer1;
 using namespace nvcaffeparser1;
 using namespace plugin;
@@ -127,8 +129,8 @@ bool percentile(cv::Mat& imageCv, std::vector<float>& query, std::vector<float>&
 {
 //    type
 //              C1	C2	C3	C4
-//    CV_8U	    0	8	16	24
-//    CV_8S	    1	9	17	25
+//    CV_8U	0	8	16	24
+//    CV_8S	1	9	17	25
 //    CV_16U	2	10	18	26
 //    CV_16S	3	11	19	27
 //    CV_32S	4	12	20	28
@@ -459,7 +461,7 @@ int main(int argc, char *argv[])
         data[i] = results[0]["ClassifiernConv2dnconvn192"][i] * 255;
     }
 
-    auto long_side = std::max(Width, Height);
+    auto long_side = (int)std::max(Width, Height);
     cv::Mat feat_map_mat = cv::Mat(32, 32, CV_8UC1, feat_map);
     cv::Mat feat_map_mat_long_side;
     cv::resize(feat_map_mat, feat_map_mat_long_side, cv::Size{long_side, long_side});
@@ -471,6 +473,36 @@ int main(int argc, char *argv[])
     LOG(INFO) << "Channel: " << img_color.channels();
     LOG(INFO) << "Channel: " << feat_map_mat_orig_size.channels();
     LOG(INFO) << "Channel: " << feat_map_mat_long_side.channels();
+    
+    LOG(INFO) << "Width: " << img_color.cols;
+    LOG(INFO) << "Height: " << img_color.rows;
+
+    auto *gpujpeg = new FrozenThrone::Lion();
+    
+    gpujpeg->init_encoder(gpuid, 4000, 4000, 1);
+
+    cv::Size size = {img_color.cols, img_color.rows};
+
+    void *bgr_data;
+    cudaMalloc((void **) &bgr_data, size.width * size.height * 3);
+    cudaMemcpy(bgr_data, img_color.ptr<unsigned char>(0), size.width * size.height * 3, cudaMemcpyHostToDevice);
+
+    uint8_t *image_compressed = nullptr;
+    int image_compressed_size = 0;
+
+    gpujpeg->encode_bgr((uint8_t *)bgr_data, size, image_compressed, image_compressed_size);
+    
+    FILE* file = fopen("output_gpu.jpg", "wb");
+    if ( !file ) {
+        LOG(ERROR) << "[GPUJPEG] [Error] Failed open output_gpu.jpg for writing!";
+        return -1;
+    }
+
+    if (image_compressed_size != fwrite(image_compressed, sizeof(uint8_t), image_compressed_size, file)) {
+        LOG(ERROR) << "[GPUJPEG] [Error] Failed to write image data [" << image_compressed_size << " bytes] to file output_gpu.jpg!";
+        return -1;
+    }
+    fclose(file);
 
     cv::imwrite(outfilename, img_color);
 

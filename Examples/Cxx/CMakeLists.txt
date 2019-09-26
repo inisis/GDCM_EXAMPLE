@@ -57,6 +57,9 @@ if(OpenCV_FOUND)
 
   add_executable(ConvertToCVMat_TensorRT ConvertToCVMat_TensorRT.cxx)
   target_link_libraries(ConvertToCVMat_TensorRT gdcmMSFF ${OpenCV_LIBS} nvinfer_plugin nvcaffe_parser nvinfer ${CUDA_LIBRARIES} glog curl)
+  
+  add_executable(ConvertToCVMat_TensorRT_GPUJPEG ConvertToCVMat_TensorRT_GPUJPEG.cxx)
+  target_link_libraries(ConvertToCVMat_TensorRT_GPUJPEG gdcmMSFF GPUJPEG ${OpenCV_LIBS} nvinfer_plugin nvcaffe_parser nvinfer ${CUDA_LIBRARIES} glog curl)
 endif()
 
 if(BUILD_SHARED_LIBS)
